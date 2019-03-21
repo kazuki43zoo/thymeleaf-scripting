@@ -337,6 +337,7 @@ class ThymeleafLanguageDriverTest {
       configuration.setDefaultScriptingLanguage(ThymeleafLanguageDriver.class);
       Assertions.fail();
     } catch (ScriptingException e) {
+      e.printStackTrace();
       Assertions.assertEquals("Failed to load language driver for org.mybatis.scripting.thymeleaf.ThymeleafLanguageDriver", e.getMessage());
       Assertions.assertEquals("java.lang.ClassNotFoundException: Cannot find class: org.mybatis.scripting.thymeleaf.FooTemplateEngineCustomizer", e.getCause().getMessage());
     }
@@ -350,6 +351,7 @@ class ThymeleafLanguageDriverTest {
       configuration.setDefaultScriptingLanguage(ThymeleafLanguageDriver.class);
       Assertions.fail();
     } catch (ScriptingException e) {
+      e.printStackTrace();
       Assertions.assertEquals("Failed to load language driver for org.mybatis.scripting.thymeleaf.ThymeleafLanguageDriver", e.getMessage());
       Assertions.assertEquals("Cannot create an instance for class: class org.mybatis.scripting.thymeleaf.NoDefaultConstructorTemplateEngineCustomizer", e.getCause().getMessage());
     }
