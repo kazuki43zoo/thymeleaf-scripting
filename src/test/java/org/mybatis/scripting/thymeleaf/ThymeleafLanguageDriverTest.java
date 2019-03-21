@@ -17,6 +17,7 @@ package org.mybatis.scripting.thymeleaf;
 
 import java.io.Reader;
 import java.io.UncheckedIOException;
+import java.lang.reflect.InvocationTargetException;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.util.Arrays;
@@ -339,7 +340,8 @@ class ThymeleafLanguageDriverTest {
     } catch (ScriptingException e) {
       e.printStackTrace();
       Assertions.assertEquals("Failed to load language driver for org.mybatis.scripting.thymeleaf.ThymeleafLanguageDriver", e.getMessage());
-      Assertions.assertEquals("java.lang.ClassNotFoundException: Cannot find class: org.mybatis.scripting.thymeleaf.FooTemplateEngineCustomizer", e.getCause().getMessage());
+      Throwable cause = e.getCause() instanceof InvocationTargetException ? e.getCause().getCause() : e.getCause();
+      Assertions.assertEquals("java.lang.ClassNotFoundException: Cannot find class: org.mybatis.scripting.thymeleaf.FooTemplateEngineCustomizer", cause.getMessage());
     }
   }
 
@@ -353,7 +355,8 @@ class ThymeleafLanguageDriverTest {
     } catch (ScriptingException e) {
       e.printStackTrace();
       Assertions.assertEquals("Failed to load language driver for org.mybatis.scripting.thymeleaf.ThymeleafLanguageDriver", e.getMessage());
-      Assertions.assertEquals("Cannot create an instance for class: class org.mybatis.scripting.thymeleaf.NoDefaultConstructorTemplateEngineCustomizer", e.getCause().getMessage());
+      Throwable cause = e.getCause() instanceof InvocationTargetException ? e.getCause().getCause() : e.getCause();
+      Assertions.assertEquals("Cannot create an instance for class: class org.mybatis.scripting.thymeleaf.NoDefaultConstructorTemplateEngineCustomizer", cause.getMessage());
     }
   }
 
