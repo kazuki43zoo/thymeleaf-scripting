@@ -17,8 +17,11 @@ package org.mybatis.scripting.thymeleaf.processor;
 
 import java.lang.reflect.Array;
 import java.util.Collection;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.mybatis.scripting.thymeleaf.MyBatisBindingContext;
+import org.mybatis.scripting.thymeleaf.NamedParameterConfig;
 import org.thymeleaf.context.ITemplateContext;
 import org.thymeleaf.engine.AttributeName;
 import org.thymeleaf.engine.EngineEventUtils;
@@ -39,11 +42,13 @@ import org.thymeleaf.templatemode.TemplateMode;
  * @version 1.0.0
  */
 public class MyBatisParamTagProcessor extends AbstractAttributeTagProcessor {
-
+  private static final Pattern EXPRESSION_PATTERN = Pattern.compile("\\$\\{(.*)}");
   private static final int PRECEDENCE = 1400;
   private static final String ATTR_NAME = "p";
 
   private final StandardExpressionExecutionContext expressionExecutionContext;
+
+  private NamedParameterConfig namedParameterConfig = new NamedParameterConfig();
 
   /**
    * Constructor that can be specified the template mode and dialect prefix.
@@ -59,12 +64,25 @@ public class MyBatisParamTagProcessor extends AbstractAttributeTagProcessor {
         : StandardExpressionExecutionContext.NORMAL;
   }
 
+  public void setNamedParameterConfig(NamedParameterConfig namedParameterConfig) {
+    this.namedParameterConfig = namedParameterConfig;
+  }
+
   /**
    * {@inheritDoc}
    */
   @Override
   protected void doProcess(ITemplateContext context, IProcessableElementTag tag, AttributeName attributeName,
       String attributeValue, IElementTagStructureHandler structureHandler) {
+
+    Matcher expressionMatcher = EXPRESSION_PATTERN.matcher(attributeValue);
+    if (expressionMatcher.find()) {
+      for (int i = 0; i < expressionMatcher.groupCount(); i++) {
+        attributeValue = EXPRESSION_PATTERN.matcher(attributeValue).replaceFirst(
+            getExpressionEvaluatedValue(context, tag, attributeName, expressionMatcher.group(i + 1)).toString());
+      }
+    }
+
     Pair parameterAndOptionPair = Pair.parse(attributeValue, ',');
     String parameterPath = parameterAndOptionPair.left;
     String options = parameterAndOptionPair.right;
@@ -83,13 +101,15 @@ public class MyBatisParamTagProcessor extends AbstractAttributeTagProcessor {
         bindingContext.setCustomBindVariable(iterationObjectVariableName, iterationStatus.getCurrent());
       }
       if (nestedPropertyPath.isEmpty()) {
-        body = "#{" + iterationObjectVariableName + options + "}";
+        body = namedParameterConfig.getPrefix() + iterationObjectVariableName + options
+            + namedParameterConfig.getSuffix();
       } else {
         Object value = getExpressionEvaluatedValue(context, tag, attributeName, parameterPath);
         if (isCollectionOrArray(value)) {
           body = generateCollectionBindVariables(value, iterationObjectVariableName + nestedPropertyPath, options);
         } else {
-          body = "#{" + iterationObjectVariableName + nestedPropertyPath + options + "}";
+          body = namedParameterConfig.getPrefix() + iterationObjectVariableName + nestedPropertyPath + options
+              + namedParameterConfig.getSuffix();
         }
       }
     } else {
@@ -98,7 +118,7 @@ public class MyBatisParamTagProcessor extends AbstractAttributeTagProcessor {
       if (isCollectionOrArray(value)) {
         body = generateCollectionBindVariables(value, parameterPath, options);
       } else {
-        body = "#{" + attributeValue + "}";
+        body = namedParameterConfig.getPrefix() + attributeValue + namedParameterConfig.getSuffix();
       }
     }
     structureHandler.setBody(body, false);
@@ -125,7 +145,8 @@ public class MyBatisParamTagProcessor extends AbstractAttributeTagProcessor {
         if (i != 0) {
           sb.append(", ");
         }
-        sb.append("#{").append(parameterPath).append("[").append(i).append("]").append(options).append("}");
+        sb.append(namedParameterConfig.getPrefix()).append(parameterPath).append("[").append(i).append("]")
+            .append(options).append(namedParameterConfig.getSuffix());
       }
       return sb.toString();
     }

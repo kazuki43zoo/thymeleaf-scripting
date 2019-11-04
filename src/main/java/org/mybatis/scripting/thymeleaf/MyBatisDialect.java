@@ -15,10 +15,7 @@
  */
 package org.mybatis.scripting.thymeleaf;
 
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.Set;
+import java.util.*;
 
 import org.mybatis.scripting.thymeleaf.expression.Likes;
 import org.mybatis.scripting.thymeleaf.processor.MyBatisBindTagProcessor;
@@ -50,6 +47,8 @@ public class MyBatisDialect extends AbstractProcessorDialect implements IExpress
 
   private Likes likes = Likes.newBuilder().build();
 
+  private NamedParameterConfig namedParameterConfig = new NamedParameterConfig();
+
   /**
    * Default constructor.
    */
@@ -77,6 +76,10 @@ public class MyBatisDialect extends AbstractProcessorDialect implements IExpress
     this.likes = likes;
   }
 
+  public void setNamedParameterConfig(NamedParameterConfig namedParameterConfig) {
+    this.namedParameterConfig = namedParameterConfig;
+  }
+
   /**
    * {@inheritDoc}
    */
@@ -84,8 +87,13 @@ public class MyBatisDialect extends AbstractProcessorDialect implements IExpress
   public Set<IProcessor> getProcessors(String dialectPrefix) {
     return new HashSet<>(Arrays.asList(new MyBatisBindTagProcessor(TemplateMode.TEXT, dialectPrefix),
         new MyBatisBindTagProcessor(TemplateMode.CSS, dialectPrefix),
-        new MyBatisParamTagProcessor(TemplateMode.TEXT, dialectPrefix),
-        new MyBatisParamTagProcessor(TemplateMode.CSS, dialectPrefix)));
+        assignNamedParameterStrategyIfPresent(new MyBatisParamTagProcessor(TemplateMode.TEXT, dialectPrefix)),
+        assignNamedParameterStrategyIfPresent(new MyBatisParamTagProcessor(TemplateMode.CSS, dialectPrefix))));
+  }
+
+  private MyBatisParamTagProcessor assignNamedParameterStrategyIfPresent(MyBatisParamTagProcessor processor) {
+    Optional.ofNullable(namedParameterConfig).ifPresent(processor::setNamedParameterConfig);
+    return processor;
   }
 
   /**

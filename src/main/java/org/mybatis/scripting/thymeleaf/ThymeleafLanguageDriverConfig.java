@@ -19,22 +19,23 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.stream.Stream;
 
-import org.apache.ibatis.io.Resources;
-import org.apache.ibatis.reflection.DefaultReflectorFactory;
-import org.apache.ibatis.reflection.MetaObject;
-import org.apache.ibatis.reflection.factory.DefaultObjectFactory;
-import org.apache.ibatis.reflection.wrapper.DefaultObjectWrapperFactory;
+import org.thymeleaf.util.ClassLoaderUtils;
 import org.thymeleaf.util.StringUtils;
 
 /**
@@ -49,7 +50,6 @@ public class ThymeleafLanguageDriverConfig {
   private static final String PROPERTY_KEY_CONFIG_ENCODING = "mybatis-thymeleaf.config.encoding";
   private static final String DEFAULT_PROPERTIES_FILE = "mybatis-thymeleaf.properties";
   private static final Map<Class<?>, Function<String, Object>> TYPE_CONVERTERS;
-
   static {
     Map<Class<?>, Function<String, Object>> converters = new HashMap<>();
     converters.put(boolean.class, v -> Boolean.valueOf(v.trim()));
@@ -60,7 +60,7 @@ public class ThymeleafLanguageDriverConfig {
     converters.put(Charset.class, v -> Charset.forName(v.trim()));
     converters.put(Long.class, v -> Long.valueOf(v.trim()));
     converters.put(String[].class, v -> Stream.of(v.split(",")).map(String::trim).toArray(String[]::new));
-    converters.put(Class.class, ThymeleafLanguageDriverConfig::classForName);
+    converters.put(Class.class, ThymeleafLanguageDriverConfig::loadClass);
     TYPE_CONVERTERS = Collections.unmodifiableMap(converters);
   }
 
@@ -89,7 +89,7 @@ public class ThymeleafLanguageDriverConfig {
    * <p>
    * Default is {@code true}.
    * </p>
-   * 
+   *
    * @return If use the 2-way SQL feature, return {@code true}
    */
   public boolean isUse2way() {
@@ -111,7 +111,7 @@ public class ThymeleafLanguageDriverConfig {
    * <p>
    * Default is {@code null}.
    * </p>
-   * 
+   *
    * @return the interface for customizing a default TemplateEngine
    */
   public Class<? extends TemplateEngineCustomizer> getCustomizer() {
@@ -189,7 +189,7 @@ public class ThymeleafLanguageDriverConfig {
      * <p>
      * Default is {@code UTF-8}.
      * </p>
-     * 
+     *
      * @return the character encoding for reading template resource file
      */
     public Charset getEncoding() {
@@ -233,7 +233,7 @@ public class ThymeleafLanguageDriverConfig {
      * <p>
      * Default is {@code "*.sql"}.
      * </p>
-     * 
+     *
      * @return patterns for reading as template resource file
      */
     public String[] getPatterns() {
@@ -255,7 +255,7 @@ public class ThymeleafLanguageDriverConfig {
      * <p>
      * Default is {@code true}.
      * </p>
-     * 
+     *
      * @return If use th cache feature, return {@code true}
      */
     public boolean isCacheEnabled() {
@@ -277,7 +277,7 @@ public class ThymeleafLanguageDriverConfig {
      * <p>
      * Default is {@code null}(indicate to use default value of Thymeleaf).
      * </p>
-     * 
+     *
      * @return the cache TTL(millisecond) for resolved templates
      */
     public Long getCacheTtl() {
@@ -481,12 +481,14 @@ public class ThymeleafLanguageDriverConfig {
      */
     private Character[] likeAdditionalEscapeTargetChars;
 
+    private final NamedParameterConfig namedParameter = new NamedParameterConfig();
+
     /**
      * Get the prefix name of dialect provided by this project.
      * <p>
      * Default is {@code "mb"}.
      * </p>
-     * 
+     *
      * @return the prefix name of dialect
      */
     public String getPrefix() {
@@ -508,7 +510,7 @@ public class ThymeleafLanguageDriverConfig {
      * <p>
      * Default is {@code '\'}.
      * </p>
-     * 
+     *
      * @return the escape character for wildcard
      */
     public Character getLikeEscapeChar() {
@@ -530,7 +532,7 @@ public class ThymeleafLanguageDriverConfig {
      * <p>
      * Can specify format that can be allowed by String#format method. Default is {@code "ESCAPE '%s'"}.
      * </p>
-     * 
+     *
      * @return the format of escape clause for LIKE condition
      */
     public String getLikeEscapeClauseFormat() {
@@ -552,7 +554,7 @@ public class ThymeleafLanguageDriverConfig {
      * <p>
      * Can specify multiple characters using comma(",") as separator character. Default is empty(none).
      * </p>
-     * 
+     *
      * @return additional escape target characters(custom wildcard characters)
      */
     public Character[] getLikeAdditionalEscapeTargetChars() {
@@ -567,6 +569,10 @@ public class ThymeleafLanguageDriverConfig {
      */
     public void setLikeAdditionalEscapeTargetChars(Character... likeAdditionalEscapeTargetChars) {
       this.likeAdditionalEscapeTargetChars = likeAdditionalEscapeTargetChars;
+    }
+
+    public NamedParameterConfig getNamedParameter() {
+      return namedParameter;
     }
 
   }
@@ -733,15 +739,34 @@ public class ThymeleafLanguageDriverConfig {
   }
 
   private static void override(ThymeleafLanguageDriverConfig config, Properties properties) {
-    MetaObject metaObject = MetaObject.forObject(config, new DefaultObjectFactory(), new DefaultObjectWrapperFactory(),
-        new DefaultReflectorFactory());
-    properties.forEach((key, value) -> {
-      String propertyPath = StringUtils.unCapitalize(StringUtils.capitalizeWords(key, "-").replaceAll("-", ""));
-      Optional.ofNullable(value).ifPresent(v -> {
-        Object convertedValue = TYPE_CONVERTERS.get(metaObject.getSetterType(propertyPath)).apply(value.toString());
-        metaObject.setValue(propertyPath, convertedValue);
-      });
+    properties.entrySet().stream().filter(entry -> Objects.nonNull(entry.getValue())).forEach(entry -> {
+      String propertyPath = StringUtils
+          .unCapitalize(StringUtils.capitalizeWords(entry.getKey(), "-").replaceAll("-", ""));
+      try {
+        Object target = config;
+        String propertyName = propertyPath;
+        if (propertyPath.indexOf('.') != -1) {
+          String[] propertyPaths = StringUtils.split(propertyPath, ".");
+          propertyName = propertyPaths[propertyPaths.length - 1];
+          for (String path : Arrays.copyOf(propertyPaths, propertyPaths.length - 1)) {
+            target = target.getClass().getMethod("get" + StringUtils.capitalize(path)).invoke(target);
+          }
+        }
+        String capitalizedPropertyName = StringUtils.capitalize(propertyName);
+        Class<?> propertyType = Stream.of(target.getClass().getMethods())
+            .filter(getterMethodExistenceCheckPredicate(capitalizedPropertyName)).findFirst().map(Method::getReturnType)
+            .orElseThrow(() -> new NoSuchMethodException("Not found the getter method for '" + propertyPath + "'."));
+        target.getClass().getMethod("set" + capitalizedPropertyName, propertyType).invoke(target,
+            TYPE_CONVERTERS.getOrDefault(propertyType, v -> v).apply(entry.getValue().toString()));
+      } catch (IllegalAccessException | InvocationTargetException | NoSuchMethodException e) {
+        throw new IllegalStateException(e);
+      }
     });
+  }
+
+  private static Predicate<Method> getterMethodExistenceCheckPredicate(String capitalizedPropertyName) {
+    return method -> method.getName().equals("get" + capitalizedPropertyName)
+        || method.getName().equals("is" + capitalizedPropertyName);
   }
 
   private static Properties loadDefaultProperties() {
@@ -750,12 +775,7 @@ public class ThymeleafLanguageDriverConfig {
 
   private static Properties loadProperties(String resourcePath) {
     Properties properties = new Properties();
-    InputStream in;
-    try {
-      in = Resources.getResourceAsStream(resourcePath);
-    } catch (IOException e) {
-      in = null;
-    }
+    InputStream in = ClassLoaderUtils.findResourceAsStream(resourcePath);
     if (in != null) {
       Charset encoding = Optional.ofNullable(System.getProperty(PROPERTY_KEY_CONFIG_ENCODING)).map(Charset::forName)
           .orElse(StandardCharsets.UTF_8);
@@ -769,11 +789,11 @@ public class ThymeleafLanguageDriverConfig {
     return properties;
   }
 
-  private static Class<?> classForName(String value) {
+  private static Class<?> loadClass(String value) {
     try {
-      return Resources.classForName(value.trim());
+      return ClassLoaderUtils.loadClass(value.trim());
     } catch (ClassNotFoundException e) {
-      throw new IllegalStateException(e);
+      throw new IllegalStateException(new ClassNotFoundException("Cannot find class: " + value.trim()));
     }
   }
 
